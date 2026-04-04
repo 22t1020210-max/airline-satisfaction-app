@@ -50,7 +50,7 @@ page = st.sidebar.radio("Chọn trang:",
                          "3. Đánh giá & Hiệu năng"])
 
 st.sidebar.markdown("---")
-st.sidebar.info("**Thông tin sinh viên:**\n\n- Họ tên: [Điền tên của bạn]\n- MSSV: [Điền MSSV]\n- Môn học: Machine Learning")
+st.sidebar.info("**Thông tin sinh viên:**\n\n- Họ tên: Hồ Gia Long\n- MSSV: 22T1020210\n- Môn học: Machine Learning with Python")
 
 # ==========================================
 # TRANG 1: KHÁM PHÁ DỮ LIỆU (EDA)
