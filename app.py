@@ -3,7 +3,7 @@ import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, roc_curve
 
 # ==========================================
 # CẤU HÌNH TRANG WEB
@@ -223,6 +223,25 @@ elif page == "3. Đánh giá & Hiệu năng":
             roc_auc = roc_auc_score(y_test_true, y_pred_proba)
             st.metric(label="Chỉ số ROC-AUC", value=f"{roc_auc:.4f}")
             
+        # ==========================================
+        # ĐOẠN CODE VẼ ĐƯỜNG CONG ROC VỪA ĐƯỢC THÊM
+        # ==========================================
+        st.markdown("---")
+        st.subheader("📈 Đường cong ROC (ROC Curve)")
+        
+        fpr, tpr, thresholds = roc_curve(y_test_true, y_pred_proba)
+        fig_roc, ax_roc = plt.subplots(figsize=(7, 5))
+        ax_roc.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (AUC = {roc_auc:.4f})')
+        ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        ax_roc.set_xlim([0.0, 1.0])
+        ax_roc.set_ylim([0.0, 1.05])
+        ax_roc.set_xlabel('Tỷ lệ Dương tính giả (False Positive Rate)')
+        ax_roc.set_ylabel('Tỷ lệ Dương tính thật (True Positive Rate)')
+        ax_roc.legend(loc="lower right")
+        
+        st.pyplot(fig_roc)
+        # ==========================================
+
         st.markdown("---")
         
         # Trực quan hóa Trọng số (Feature Weights)
