@@ -11,34 +11,43 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 st.set_page_config(page_title="Airline Satisfaction App", page_icon="✈️", layout="wide")
 
 # ==========================================
-# HÀM TẢI DỮ LIỆU & MÔ HÌNH (SỬ DỤNG CACHE ĐỂ KHÔNG TRÀN RAM)
+# HÀM TẢI MÔ HÌNH VÀ THAM SỐ (TẢI TRƯỚC ĐỂ DÙNG CHO LOAD_DATA)
+# ==========================================
+@st.cache_resource
+def load_model():
+    """Tải mô hình, bộ chuẩn hóa và giá trị trung vị"""
+    with open('models/model.pkl', 'rb') as f:
+        model = pickle.load(f)
+    with open('models/scaler.pkl', 'rb') as f:
+        scaler = pickle.load(f)
+    with open('models/median_delay.pkl', 'rb') as f:
+        median_delay = pickle.load(f) # Tải con số trung vị của tập Train
+    return model, scaler, median_delay
+
+# Tải Model và Tham số ra trước
+model, scaler, median_delay = load_model()
+
+# ==========================================
+# HÀM TẢI DỮ LIỆU (SỬ DỤNG CACHE)
 # ==========================================
 @st.cache_data
-def load_data(file_path, sample_size=5000):
-    """Đọc dữ liệu và lấy mẫu ngẫu nhiên để vẽ biểu đồ cho nhẹ"""
+def load_data(file_path, median_val, sample_size=5000):
+    """Đọc dữ liệu, điền khuyết bằng trung vị chuẩn và lấy mẫu"""
     df = pd.read_csv(file_path)
     # Bỏ các cột không cần thiết
     cols_to_drop = ['Unnamed: 0', 'id']
     df = df.drop(columns=[col for col in cols_to_drop if col in df.columns], errors='ignore')
-    # Điền khuyết
-    df['Arrival Delay in Minutes'] = df['Arrival Delay in Minutes'].fillna(df['Arrival Delay in Minutes'].median())
+    
+    # ĐIỂM CẢI THIỆN: Điền khuyết bằng tham số median_val (từ tập Train)
+    df['Arrival Delay in Minutes'] = df['Arrival Delay in Minutes'].fillna(median_val)
+    
     # Lấy mẫu để tránh treo trình duyệt khi vẽ biểu đồ
     if len(df) > sample_size:
         df = df.sample(n=sample_size, random_state=42)
     return df
 
-@st.cache_resource
-def load_model():
-    """Tải mô hình và bộ chuẩn hóa"""
-    with open('models/model.pkl', 'rb') as f:
-        model = pickle.load(f)
-    with open('models/scaler.pkl', 'rb') as f:
-        scaler = pickle.load(f)
-    return model, scaler
-
-# Tải trước dữ liệu và mô hình
-train_df = load_data('data/train.csv')
-model, scaler = load_model()
+# Tải trước dữ liệu Train
+train_df = load_data('data/train.csv', median_val=median_delay)
 
 # ==========================================
 # THANH ĐIỀU HƯỚNG (SIDEBAR)
@@ -57,10 +66,10 @@ st.sidebar.info("**Thông tin sinh viên:**\n\n- Họ tên: Hồ Gia Long\n- MSS
 # ==========================================
 if page == "1. Khám phá dữ liệu (EDA)":
     st.title("📊 Khám phá dữ liệu (EDA)")
-    st.markdown("**Giá trị thực tiễn:** Hệ thống giúp các hãng hàng không định lượng chính xác yếu tố cốt lõi ảnh hưởng đến trải nghiệm bay, từ đó phân bổ ngân sách tối ưu để cải thiện dịch vụ.")
+    st.markdown("**Giá trị thực tiễn:** Giúp các hãng hàng không định lượng chính xác yếu tố cốt lõi ảnh hưởng đến trải nghiệm bay, từ đó phân bổ ngân sách tối ưu để cải thiện dịch vụ.")
     
     st.subheader("1. Dữ liệu thô (Sample 5000 dòng)")
-    st.dataframe(train_df.head(100)) # Hiển thị 100 dòng đầu để xem trước
+    st.dataframe(train_df.head(100))
     
     st.subheader("2. Phân tích trực quan")
     col1, col2 = st.columns(2)
@@ -68,7 +77,6 @@ if page == "1. Khám phá dữ liệu (EDA)":
     with col1:
         st.markdown("**Tỷ lệ Hành khách Hài lòng vs Không hài lòng**")
         fig1, ax1 = plt.subplots(figsize=(5,4))
-        # Đếm số lượng
         satisfaction_counts = train_df['satisfaction'].value_counts()
         ax1.pie(satisfaction_counts, labels=satisfaction_counts.index, autopct='%1.1f%%', colors=['#ff9999','#66b3ff'])
         st.pyplot(fig1)
@@ -88,7 +96,6 @@ elif page == "2. Triển khai mô hình":
     st.title("✈️ Dự đoán mức độ hài lòng của hành khách")
     st.markdown("Vui lòng nhập thông tin chuyến bay và các đánh giá dịch vụ bên dưới:")
     
-    # Tạo form nhập liệu để code gọn gàng và gom nhóm tốt hơn
     with st.form("prediction_form"):
         st.subheader("Thông tin hành khách & Chuyến bay")
         col1, col2, col3 = st.columns(3)
@@ -102,28 +109,50 @@ elif page == "2. Triển khai mô hình":
             flight_distance = st.number_input("Khoảng cách bay (dặm)", min_value=1, max_value=10000, value=500)
         with col3:
             dep_delay = st.number_input("Trễ giờ khởi hành (phút)", min_value=0, max_value=1500, value=0)
-            arr_delay = st.number_input("Trễ giờ đến (phút)", min_value=0, max_value=1500, value=0)
+            
+            # ĐIỂM CẢI THIỆN: Dùng tham số median_delay làm giá trị mặc định chuẩn xác
+            arr_delay = st.number_input(
+                "Trễ giờ đến (phút)", 
+                min_value=0, 
+                max_value=1500, 
+                value=int(median_delay),
+                help="Hệ thống tự động điền giá trị trễ chuyến phổ biến nhất (Trung vị) nếu bạn không nhớ."
+            )
             
         st.subheader("Đánh giá dịch vụ (1 - 5 sao)")
-        # Lấy các cột đánh giá từ dữ liệu gốc
-        service_cols = ['Inflight wifi service', 'Departure/Arrival time convenient', 'Ease of Online booking', 
-                        'Gate location', 'Food and drink', 'Online boarding', 'Seat comfort', 
-                        'Inflight entertainment', 'On-board service', 'Leg room service', 
-                        'Baggage handling', 'Checkin service', 'Inflight service', 'Cleanliness']
         
-        # Tạo lưới slider
+        # Tạo một từ điển (Dictionary) ánh xạ tiếng Anh sang tiếng Việt
+        service_map = {
+            'Inflight wifi service': 'Dịch vụ Wifi',
+            'Departure/Arrival time convenient': 'Giờ bay/đáp thuận tiện',
+            'Ease of Online booking': 'Dễ dàng đặt vé Online',
+            'Gate location': 'Vị trí cổng lên máy bay',
+            'Food and drink': 'Đồ ăn và thức uống',
+            'Online boarding': 'Làm thủ tục (Boarding) Online',
+            'Seat comfort': 'Sự thoải mái của ghế ngồi',
+            'Inflight entertainment': 'Giải trí trên chuyến bay',
+            'On-board service': 'Dịch vụ trên máy bay',
+            'Leg room service': 'Không gian để chân',
+            'Baggage handling': 'Xử lý hành lý',
+            'Checkin service': 'Dịch vụ Check-in',
+            'Inflight service': 'Dịch vụ hỗ trợ chung',
+            'Cleanliness': 'Độ sạch sẽ'
+        }
+        
+        # Tạo lưới 2 cột cho các thanh trượt (slider)
         s_col1, s_col2 = st.columns(2)
         user_ratings = {}
-        for i, service in enumerate(service_cols):
+        
+        # Duyệt qua từng mục trong từ điển để tạo Slider bằng tiếng Việt, nhưng lưu Data bằng tiếng Anh
+        for i, (eng_key, vie_label) in enumerate(service_map.items()):
             if i % 2 == 0:
-                user_ratings[service] = s_col1.slider(service, 0, 5, 3) # 0 là không áp dụng, 1-5 là điểm
+                user_ratings[eng_key] = s_col1.slider(vie_label, 0, 5, 3) 
             else:
-                user_ratings[service] = s_col2.slider(service, 0, 5, 3)
+                user_ratings[eng_key] = s_col2.slider(vie_label, 0, 5, 3)
                 
         submit_button = st.form_submit_button(label="🚀 Bấm để Dự đoán")
 
     if submit_button:
-        # 1. Chuyển đổi Input thành DataFrame giống hệt lúc train
         input_data = {
             'Gender': 0 if gender == 'Male' else 1,
             'Customer Type': 0 if customer_type == 'disloyal Customer' else 1,
@@ -132,14 +161,12 @@ elif page == "2. Triển khai mô hình":
             'Class': 0 if flight_class == 'Eco' else (1 if flight_class == 'Eco Plus' else 2),
             'Flight Distance': flight_distance,
         }
-        # Ghép thêm các cột đánh giá dịch vụ
         input_data.update(user_ratings)
         input_data['Departure Delay in Minutes'] = dep_delay
         input_data['Arrival Delay in Minutes'] = arr_delay
         
         input_df = pd.DataFrame([input_data])
         
-        # Chắc chắn thứ tự cột khớp 100% với lúc train (rất quan trọng)
         feature_columns = ['Gender', 'Customer Type', 'Age', 'Type of Travel', 'Class',
                            'Flight Distance', 'Inflight wifi service',
                            'Departure/Arrival time convenient', 'Ease of Online booking',
@@ -149,14 +176,11 @@ elif page == "2. Triển khai mô hình":
                            'Cleanliness', 'Departure Delay in Minutes', 'Arrival Delay in Minutes']
         input_df = input_df[feature_columns]
         
-        # 2. Chuẩn hóa dữ liệu bằng scaler đã lưu
         input_scaled = scaler.transform(input_df)
         
-        # 3. Dự đoán
         prediction = model.predict(input_scaled)
         probability = model.predict_proba(input_scaled)
         
-        # 4. Hiển thị kết quả
         st.markdown("---")
         st.subheader("💡 Kết quả dự đoán:")
         
@@ -174,11 +198,10 @@ elif page == "3. Đánh giá & Hiệu năng":
     st.title("📈 Đánh giá Hiệu năng Mô hình (Evaluation)")
     st.markdown("Phần này đánh giá mô hình Logistic Regression trên tập dữ liệu kiểm thử (test.csv).")
     
-    # Để tính toán chính xác, ta cần load lại tập test và xử lý
     with st.spinner("Đang tính toán các chỉ số..."):
-        test_df = load_data('data/test.csv', sample_size=100000) # Lấy toàn bộ test để đánh giá chính xác
+        # ĐIỂM CẢI THIỆN: Truyền median_delay vào tập test
+        test_df = load_data('data/test.csv', median_val=median_delay, sample_size=100000) 
         
-        # Mã hóa nhanh
         test_df['Gender'] = test_df['Gender'].map({'Male': 0, 'Female': 1})
         test_df['Customer Type'] = test_df['Customer Type'].map({'disloyal Customer': 0, 'Loyal Customer': 1})
         test_df['Type of Travel'] = test_df['Type of Travel'].map({'Personal Travel': 0, 'Business travel': 1})
@@ -188,7 +211,6 @@ elif page == "3. Đánh giá & Hiệu năng":
         X_test = test_df.drop('satisfaction', axis=1)
         X_test_scaled = scaler.transform(X_test)
         
-        # Dự đoán
         y_pred = model.predict(X_test_scaled)
         acc = accuracy_score(y_test_true, y_pred)
         
