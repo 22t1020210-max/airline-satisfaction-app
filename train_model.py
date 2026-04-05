@@ -10,9 +10,8 @@ if not os.path.exists('models'):
     os.makedirs('models')
 
 print("1. Đang đọc dữ liệu...")
-train_df = pd.read_csv('data/train.csv')
-test_df = pd.read_csv('data/test.csv')
-
+train_df = pd.read_csv('data/train.csv', index_col=0)
+test_df = pd.read_csv('data/test.csv', index_col=0)
 # Bỏ các cột không mang ý nghĩa phân tích
 cols_to_drop = ['Unnamed: 0', 'id']
 train_df = train_df.drop(columns=[col for col in cols_to_drop if col in train_df.columns], errors='ignore')

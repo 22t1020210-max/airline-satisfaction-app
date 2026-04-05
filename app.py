@@ -35,7 +35,7 @@ model, scaler, mean_delay, model_columns = load_model()
 @st.cache_data
 def load_data(file_path, mean_val, sample_size=5000):
     """Đọc dữ liệu, điền khuyết bằng trung bình chuẩn và lấy mẫu"""
-    df = pd.read_csv(file_path)
+    df = pd.read_csv(file_path, index_col=0)
     cols_to_drop = ['Unnamed: 0', 'id']
     df = df.drop(columns=[col for col in cols_to_drop if col in df.columns], errors='ignore')
     
@@ -162,7 +162,7 @@ elif page == "2. Triển khai mô hình":
         
         # CẬP NHẬT: Xử lý One-Hot Encoding trực tiếp trên input
         categorical_cols = ['Gender', 'Customer Type', 'Type of Travel', 'Class']
-        input_df = pd.get_dummies(input_df, columns=categorical_cols)
+        input_df = pd.get_dummies(input_df, columns=categorical_cols, drop_first=True)
         
         # Đồng bộ cột với model (Thêm số 0 vào các cột hạng vé/giới tính bị thiếu do user không chọn)
         for col in model_columns:
