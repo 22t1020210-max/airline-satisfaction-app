@@ -2,7 +2,7 @@ import pandas as pd
 import pickle
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
 import os
 
 # Tạo thư mục models nếu chưa có
@@ -18,62 +18,74 @@ cols_to_drop = ['Unnamed: 0', 'id']
 train_df = train_df.drop(columns=[col for col in cols_to_drop if col in train_df.columns], errors='ignore')
 test_df = test_df.drop(columns=[col for col in cols_to_drop if col in test_df.columns], errors='ignore')
 
-print("2. Xử lý giá trị khuyết thiếu (Imputation)...")
-# CẢI THIỆN: Tính median CHỈ TỪ TẬP TRAIN
-train_median_delay = train_df['Arrival Delay in Minutes'].median()
+print("2. Xử lý giá trị khuyết thiếu bằng MEAN (Trung bình)...")
+train_mean_delay = train_df['Arrival Delay in Minutes'].mean()
 
-# Dùng con số này để điền cho CẢ tập train và tập test
-train_df['Arrival Delay in Minutes'] = train_df['Arrival Delay in Minutes'].fillna(train_median_delay)
-test_df['Arrival Delay in Minutes'] = test_df['Arrival Delay in Minutes'].fillna(train_median_delay)
+# Dùng Mean để điền cho CẢ tập train và tập test
+train_df['Arrival Delay in Minutes'] = train_df['Arrival Delay in Minutes'].fillna(train_mean_delay)
+test_df['Arrival Delay in Minutes'] = test_df['Arrival Delay in Minutes'].fillna(train_mean_delay)
 
-print("3. Mã hóa dữ liệu (Manual Encoding)...")
-gender_map = {'Male': 0, 'Female': 1}
-customer_map = {'disloyal Customer': 0, 'Loyal Customer': 1}
-travel_map = {'Personal Travel': 0, 'Business travel': 1}
-class_map = {'Eco': 0, 'Eco Plus': 1, 'Business': 2} 
+print("3. Mã hóa dữ liệu bằng ONE-HOT ENCODING...")
+# Tách biến mục tiêu (target)
 target_map = {'neutral or dissatisfied': 0, 'satisfied': 1}
+y_train = train_df['satisfaction'].map(target_map)
+y_test = test_df['satisfaction'].map(target_map)
 
-def encode_data(df):
-    df_encoded = df.copy()
-    df_encoded['Gender'] = df_encoded['Gender'].map(gender_map)
-    df_encoded['Customer Type'] = df_encoded['Customer Type'].map(customer_map)
-    df_encoded['Type of Travel'] = df_encoded['Type of Travel'].map(travel_map)
-    df_encoded['Class'] = df_encoded['Class'].map(class_map)
-    df_encoded['satisfaction'] = df_encoded['satisfaction'].map(target_map)
-    return df_encoded
+X_train = train_df.drop('satisfaction', axis=1)
+X_test = test_df.drop('satisfaction', axis=1)
 
-train_encoded = encode_data(train_df)
-test_encoded = encode_data(test_df)
+# Các cột danh mục cần One-Hot Encoding
+categorical_cols = ['Gender', 'Customer Type', 'Type of Travel', 'Class']
 
-X_train = train_encoded.drop('satisfaction', axis=1)
-y_train = train_encoded['satisfaction']
-X_test = test_encoded.drop('satisfaction', axis=1)
-y_test = test_encoded['satisfaction']
+# Áp dụng get_dummies (One-Hot Encoding), dùng drop_first=True để tránh đa cộng tuyến trong Logistic Regression
+X_train = pd.get_dummies(X_train, columns=categorical_cols, drop_first=True)
+X_test = pd.get_dummies(X_test, columns=categorical_cols, drop_first=True)
+
+# Đảm bảo tập Train và Test có cùng cấu trúc cột sau khi One-Hot Encoding
+X_train, X_test = X_train.align(X_test, join='left', axis=1, fill_value=0)
 
 print("4. Chuẩn hóa dữ liệu (Scaling)...")
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test) # Chỉ transform, tuyệt đối không fit lại trên test
+X_test_scaled = scaler.transform(X_test)
 
 print("5. Đang huấn luyện mô hình Logistic Regression...")
 model = LogisticRegression(max_iter=1000)
 model.fit(X_train_scaled, y_train)
 
-print("6. Đánh giá mô hình...")
+print("6. Đánh giá mô hình (ROC-AUC & Feature Weights)...")
 y_pred = model.predict(X_test_scaled)
-print(f"Độ chính xác (Accuracy): {accuracy_score(y_test, y_pred) * 100:.2f}%\n")
-print("Báo cáo chi tiết:")
-print(classification_report(y_test, y_pred, target_names=['Không hài lòng', 'Hài lòng']))
+y_pred_proba = model.predict_proba(X_test_scaled)[:, 1] # Lấy xác suất của lớp 1 (Hài lòng)
 
-print("7. Đang lưu mô hình và các bộ tham số...")
+# Tính và in ROC-AUC
+roc_auc = roc_auc_score(y_test, y_pred_proba)
+print(f"-> ROC-AUC Score: {roc_auc:.4f}")
+print(f"-> Độ chính xác (Accuracy): {accuracy_score(y_test, y_pred) * 100:.2f}%\n")
+
+# Trích xuất và in Trọng số đặc trưng (Feature Weights)
+weights_df = pd.DataFrame({
+    'Feature': X_train.columns,
+    'Weight': model.coef_[0]
+}).sort_values(by='Weight', ascending=False)
+
+print("--- TRỌNG SỐ ĐẶC TRƯNG (Top yếu tố làm HÀI LÒNG) ---")
+print(weights_df.head(5)) # In 5 yếu tố tích cực nhất
+print("\n--- TRỌNG SỐ ĐẶC TRƯNG (Top yếu tố làm KHÔNG HÀI LÒNG) ---")
+print(weights_df.tail(5)) # In 5 yếu tố tiêu cực nhất
+
+print("\n7. Đang lưu mô hình và các bộ tham số...")
 with open('models/model.pkl', 'wb') as f:
     pickle.dump(model, f)
 
 with open('models/scaler.pkl', 'wb') as f:
     pickle.dump(scaler, f)
 
-# CẢI THIỆN: Lưu lại giá trị median để dùng trên Web App
-with open('models/median_delay.pkl', 'wb') as f:
-    pickle.dump(train_median_delay, f)
+# Lưu lại columns sau khi One-Hot để dùng cho Web App (tránh lỗi mismatch cột)
+with open('models/model_columns.pkl', 'wb') as f:
+    pickle.dump(list(X_train.columns), f)
 
-print("✅ HOÀN TẤT! Đã lưu model.pkl, scaler.pkl và median_delay.pkl vào thư mục models/.")
+# Lưu giá trị MEAN thay vì median
+with open('models/mean_delay.pkl', 'wb') as f:
+    pickle.dump(train_mean_delay, f)
+
+print("✅ HOÀN TẤT! Các file model đã được lưu vào thư mục models/.")
